@@ -37,6 +37,8 @@ from collections import deque
 
 reward_window = deque(maxlen=100)
 
+episode_rewards = []
+
 for episode in range(num_episodes):
     """
     Deep Q-Learning loop for CartPole-v1.
@@ -100,6 +102,8 @@ for episode in range(num_episodes):
             loss.backward()
             optimizer.step()
     
+    episode_rewards.append(episode_reward)
+
     if episode % 10 == 0:
         avg_reward = np.mean(reward_window) if reward_window else 0
         print(f"Episode {episode}, Avg Reward (last 100): {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
@@ -110,7 +114,62 @@ for episode in range(num_episodes):
     # Early stopping check
     if len(reward_window) == 100 and np.mean(reward_window) >= 475:
         print(f"Solved at episode {episode}! 🎉")
+        torch.save({
+            'policy_dqn_state_dict': policy_dqn.state_dict(),
+            'target_dqn_state_dict': target_dqn.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict()
+        }, 'cartpole_dqn_checkpoint.pth')
         break
 
     if episode % target_update_frequency == 0:
         target_dqn.load_state_dict(policy_dqn.state_dict())
+
+# Plot the episode rewards
+import matplotlib.pyplot as plt
+plt.plot(episode_rewards)
+plt.xlabel('Episode')
+plt.ylabel('Episode Reward')
+plt.title('Episode Rewards over Time')
+plt.savefig('episode_rewards.png')
+
+# Evaluation
+eval_env = gym.make("CartPole-v1", render_mode="rgb_array")
+eval_env = gym.wrappers.RecordVideo(
+    eval_env,
+    video_folder="videos/",
+    episode_trigger=lambda _: True,
+    name_prefix="cartpole_eval"
+)
+# Load the saved model
+checkpoint = torch.load('cartpole_dqn_checkpoint.pth')
+policy_dqn.load_state_dict(checkpoint['policy_dqn_state_dict'])
+num_eval_episodes = 10
+eval_rewards = []
+
+for episode in range(num_eval_episodes):
+    state, _ = eval_env.reset()
+    done = False
+    total_reward = 0
+
+    while not done:
+        with torch.no_grad():
+            action = policy_dqn(torch.tensor(state, dtype=torch.float32)).argmax().item()
+
+        state, reward, done, _, _ = eval_env.step(action)
+        total_reward += reward
+
+    eval_rewards.append(total_reward)
+    print(f"Evaluation Episode {episode + 1}: Reward = {total_reward}")
+
+avg_eval_reward = np.mean(eval_rewards)
+print(f"\nAverage Evaluation Reward over {num_eval_episodes} episodes: {avg_eval_reward:.2f}")
+
+# Plot the evalutation rewards
+plt.plot(eval_rewards)
+plt.xlabel('Evaluation Episode')
+plt.ylabel('Episode Reward')
+plt.title('Evaluation Episode Rewards')
+plt.savefig('evaluation_rewards.png')
+
+env.close()
+eval_env.close()
